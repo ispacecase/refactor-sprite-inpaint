@@ -2,6 +2,22 @@
 
 The owner decides; the agent proposes. Each entry says who decided and why. Add new entries at the top.
 
+## 2026-11-10: first live measurements (endpoint wvfj611jha5iko, 24 GB tier)
+
+Build: completed in about 15 minutes (the 30-minute limit was not a problem). Test: Coder sprite 1254x1254,
+forearm+hand ellipse mask, no guide or silhouette, default settings, two jobs submitted together.
+
+| | Queue + start | Running | Total from submit |
+|---|---|---|---|
+| Job 1 (cold) | 11.6 s | 21.0 s (incl. loading models to GPU; ComfyUI 19.4 s) | 37.5 s |
+| Job 2 (warm) | waited behind job 1 | 13.7 s (ComfyUI 12.1 s) | 17 s after job 1 |
+
+Unmasked pixels changed: 0 in both (also verified locally). Total GPU time about 50 s.
+Quality: style, colour and the glove gripping the spear shaft were plausible; the cyan outline was broken
+where the mask crossed the body edge. Next: keep masks inside the outline or send a silhouette/guide.
+Consequence: cold starts are ~35 s, so per-repair cold starts stay the default (idle timeout 5 s); the
+"warm GPU during sessions" switch is not needed for now.
+
 ## 2026-11-10: owner approval and pre-push adjustments (decided by the owner)
 
 The owner approved the custom RunPod Serverless architecture and the Z-Image-Turbo + Fun ControlNet Union
