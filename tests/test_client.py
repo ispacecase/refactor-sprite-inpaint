@@ -95,7 +95,35 @@ def test_failed_job_raises():
 
 
 def test_client_requires_credentials(monkeypatch):
+    monkeypatch.setattr(c, "load_config", lambda path=None: {})
     monkeypatch.delenv("RUNPOD_API_KEY", raising=False)
     monkeypatch.delenv("RUNPOD_ENDPOINT_ID", raising=False)
     with pytest.raises(c.ClientError):
         c.SpriteInpaintClient()
+
+
+def test_load_config_parses_and_env_wins(tmp_path, monkeypatch):
+    cfg = tmp_path / "env"
+    cfg.write_text("# comment\nRUNPOD_API_KEY='k123'\nRUNPOD_ENDPOINT_ID=ep9\n")
+    assert c.load_config(cfg) == {"RUNPOD_API_KEY": "k123", "RUNPOD_ENDPOINT_ID": "ep9"}
+    orig = c.load_config
+    monkeypatch.setattr(c, "load_config", lambda path=None: orig(cfg))
+    monkeypatch.delenv("RUNPOD_API_KEY", raising=False)
+    monkeypatch.setenv("RUNPOD_ENDPOINT_ID", "from-env")
+    cl = c.SpriteInpaintClient()
+    assert cl.api_key == "k123" and cl.endpoint_id == "from-env"
+
+
+def test_bench_reports_timings(files, monkeypatch):
+    sprite, mask, sp, mp, tmp = files
+    base = default_input(image=png_b64(sprite, "RGBA"), mask=png_b64(mask, "L"), prompt="p", seed=1)
+    out = pipeline.run_job("b", base, fake_runner())
+    cl = c.SpriteInpaintClient("ep", "key")
+    submitted = []
+    monkeypatch.setattr(cl, "submit", lambda inp: submitted.append(inp) or {"id": f"j{len(submitted)}"})
+    monkeypatch.setattr(cl, "wait", lambda job_id, timeout=0: {
+        "id": job_id, "status": "COMPLETED", "delayTime": 61000, "executionTime": 9500, "output": out})
+    rows = c.bench(cl, {"image": "x", "mask": "y", "prompt": "p"}, str(tmp / "b"), str(sp))
+    assert [r["delay_s"] for r in rows] == [61.0, 61.0] and rows[0]["execution_s"] == 9.5
+    assert {s["seed"] for s in submitted} == {1000, 1001}
+    assert (tmp / "b1.png").exists() and (tmp / "b2.png").exists()

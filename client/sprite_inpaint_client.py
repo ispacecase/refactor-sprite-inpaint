@@ -41,6 +41,22 @@ RUN_LIMIT = 10 * 1024 * 1024       # RunPod /run request limit
 RUNSYNC_LIMIT = 20 * 1024 * 1024   # RunPod /runsync request limit
 TERMINAL = {"COMPLETED", "FAILED", "CANCELLED", "TIMED_OUT"}
 SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schemas" / "input.schema.json"
+CONFIG_PATH = Path(os.environ.get("SPRITE_INPAINT_CONFIG",
+                                  Path.home() / ".config" / "refactor-sprite-inpaint" / "env"))
+
+
+def load_config(path: Path = CONFIG_PATH) -> dict:
+    """KEY=VALUE lines (RUNPOD_API_KEY, RUNPOD_ENDPOINT_ID). Env vars win."""
+    cfg = {}
+    try:
+        for line in path.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                cfg[k.strip()] = v.strip().strip("'\"")
+    except OSError:
+        pass
+    return cfg
 
 
 class ClientError(RuntimeError):
@@ -121,12 +137,13 @@ def build_input(image: str, mask: str, prompt: str, *, guide: str | None = None,
 class SpriteInpaintClient:
     def __init__(self, endpoint_id: str | None = None, api_key: str | None = None,
                  base_url: str = API_BASE):
-        self.endpoint_id = endpoint_id or os.environ.get("RUNPOD_ENDPOINT_ID")
-        self.api_key = api_key or os.environ.get("RUNPOD_API_KEY")
+        cfg = load_config()
+        self.endpoint_id = endpoint_id or os.environ.get("RUNPOD_ENDPOINT_ID") or cfg.get("RUNPOD_ENDPOINT_ID")
+        self.api_key = api_key or os.environ.get("RUNPOD_API_KEY") or cfg.get("RUNPOD_API_KEY")
         if not self.endpoint_id:
-            raise ClientError("set RUNPOD_ENDPOINT_ID or pass --endpoint-id")
+            raise ClientError(f"set RUNPOD_ENDPOINT_ID, pass --endpoint-id, or add it to {CONFIG_PATH}")
         if not self.api_key:
-            raise ClientError("set RUNPOD_API_KEY")
+            raise ClientError(f"set RUNPOD_API_KEY or add it to {CONFIG_PATH}")
         self.base = f"{base_url}/{self.endpoint_id}"
 
     def _call(self, method: str, path: str, body: dict | None = None, timeout: float = 120) -> dict:
@@ -182,6 +199,29 @@ class SpriteInpaintClient:
             print(f"submitted job {job['id']}", file=sys.stderr)
         st = self.wait(job["id"], timeout=timeout, quiet=quiet)
         return result_from_status(st)
+
+
+def bench(client: "SpriteInpaintClient", inp: dict, out_prefix: str, original: str,
+          timeout: float = 1800) -> list[dict]:
+    """Submit two identical jobs at once (max 1 worker): job 1 pays the cold
+    start, job 2 queues behind it and runs warm. Returns RunPod timings."""
+    t0 = time.time()
+    ids = [client.submit(dict(inp, seed=1000 + i))["id"] for i in range(2)]
+    rows = []
+    for n, job_id in enumerate(ids, 1):
+        st = client.wait(job_id, timeout=timeout)
+        out = result_from_status(st)
+        save_result(out, f"{out_prefix}{n}.png", original)
+        rows.append({
+            "job": n,
+            "id": job_id,
+            "delay_s": round((st.get("delayTime") or 0) / 1000, 1),
+            "execution_s": round((st.get("executionTime") or 0) / 1000, 1),
+            "comfy_s": out["timings"].get("comfy_s"),
+            "wall_s_since_submit": round(time.time() - t0, 1),
+            "unmasked_pixels_changed": out["unmasked_pixels_changed"],
+        })
+    return rows
 
 
 def result_from_status(st: dict) -> dict:
@@ -322,6 +362,11 @@ def main(argv=None) -> int:
     f.add_argument("--original", help="original PNG (needed for patch results)")
     sub.add_parser("health")
 
+    bn = sub.add_parser("bench", help="2 jobs: cold start + warm repair timings (uses GPU time)")
+    job_args(bn)
+    bn.add_argument("--out-prefix", required=True, help="saves <prefix>1.png and <prefix>2.png")
+    bn.add_argument("--timeout", type=float, default=1800)
+
     v = sub.add_parser("verify", help="check unmasked pixels are byte-identical (local, free)")
     v.add_argument("--original", required=True)
     v.add_argument("--mask", required=True)
@@ -353,6 +398,12 @@ def main(argv=None) -> int:
             out = result_from_status(client.status(a.job_id))
             save_result(out, a.out, a.original)
             print(f"saved {a.out}")
+        elif a.cmd == "bench":
+            rows = bench(client, _request_from_args(a), a.out_prefix, a.image, a.timeout)
+            for r in rows:
+                print(json.dumps(r))
+            print("job 1: delay_s = queue + cold start (container start, ComfyUI boot); "
+                  "execution_s = model load + repair. job 2: execution_s = warm repair.")
         elif a.cmd == "submit":
             inp = _request_from_args(a)
             job = client.submit(inp)
