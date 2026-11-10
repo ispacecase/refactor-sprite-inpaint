@@ -1,0 +1,111 @@
+{
+  "1": {
+    "class_type": "UNETLoader",
+    "inputs": {"unet_name": "z_image_turbo_bf16.safetensors", "weight_dtype": "default"},
+    "_meta": {"title": "Load Z-Image-Turbo"}
+  },
+  "2": {
+    "class_type": "CLIPLoader",
+    "inputs": {"clip_name": "qwen_3_4b.safetensors", "type": "lumina2", "device": "default"},
+    "_meta": {"title": "Load Qwen3-4B text encoder"}
+  },
+  "3": {
+    "class_type": "VAELoader",
+    "inputs": {"vae_name": "ae.safetensors"},
+    "_meta": {"title": "Load VAE"}
+  },
+  "4": {
+    "class_type": "ModelPatchLoader",
+    "inputs": {"name": "Z-Image-Turbo-Fun-Controlnet-Union-2.1-2602-8steps.safetensors"},
+    "_meta": {"title": "Load Fun ControlNet Union 2.1"}
+  },
+  "10": {
+    "class_type": "LoadImage",
+    "inputs": {"image": "sprite_inpaint_source.png"},
+    "_meta": {"title": "Source crop (flattened on matte)"}
+  },
+  "11": {
+    "class_type": "LoadImageMask",
+    "inputs": {"image": "sprite_inpaint_mask.png", "channel": "red"},
+    "_meta": {"title": "Edit mask (white = repaint)"}
+  },
+  "12": {
+    "class_type": "LoadImage",
+    "inputs": {"image": "sprite_inpaint_guide.png"},
+    "_meta": {"title": "Pose / geometry guide (optional)"}
+  },
+  "13": {
+    "class_type": "Canny",
+    "inputs": {"image": ["12", 0], "low_threshold": 0.1, "high_threshold": 0.32},
+    "_meta": {"title": "Canny on guide (optional)"}
+  },
+  "20": {
+    "class_type": "ZImageFunControlnet",
+    "inputs": {
+      "model": ["1", 0],
+      "model_patch": ["4", 0],
+      "vae": ["3", 0],
+      "strength": 0.9,
+      "image": ["12", 0],
+      "inpaint_image": ["10", 0],
+      "mask": ["11", 0]
+    },
+    "_meta": {"title": "Fun ControlNet: inpaint + guide"}
+  },
+  "21": {
+    "class_type": "ModelSamplingAuraFlow",
+    "inputs": {"model": ["20", 0], "shift": 3.0},
+    "_meta": {"title": "Shift"}
+  },
+  "30": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {"text": "correction prompt", "clip": ["2", 0]},
+    "_meta": {"title": "Correction prompt"}
+  },
+  "31": {
+    "class_type": "ConditioningZeroOut",
+    "inputs": {"conditioning": ["30", 0]},
+    "_meta": {"title": "Empty negative (cfg 1)"}
+  },
+  "32": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {"text": "", "clip": ["2", 0]},
+    "_meta": {"title": "Negative prompt (cfg > 1)"}
+  },
+  "40": {
+    "class_type": "VAEEncode",
+    "inputs": {"pixels": ["10", 0], "vae": ["3", 0]},
+    "_meta": {"title": "Encode source"}
+  },
+  "41": {
+    "class_type": "SetLatentNoiseMask",
+    "inputs": {"samples": ["40", 0], "mask": ["11", 0]},
+    "_meta": {"title": "Only denoise the mask"}
+  },
+  "50": {
+    "class_type": "KSampler",
+    "inputs": {
+      "model": ["21", 0],
+      "positive": ["30", 0],
+      "negative": ["31", 0],
+      "latent_image": ["41", 0],
+      "seed": 0,
+      "steps": 8,
+      "cfg": 1.0,
+      "sampler_name": "res_multistep",
+      "scheduler": "simple",
+      "denoise": 1.0
+    },
+    "_meta": {"title": "Sample"}
+  },
+  "60": {
+    "class_type": "VAEDecode",
+    "inputs": {"samples": ["50", 0], "vae": ["3", 0]},
+    "_meta": {"title": "Decode"}
+  },
+  "70": {
+    "class_type": "SaveImage",
+    "inputs": {"images": ["60", 0], "filename_prefix": "sprite_inpaint/raw"},
+    "_meta": {"title": "Raw generation (composited by the handler)"}
+  }
+}

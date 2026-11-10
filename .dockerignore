@@ -1,0 +1,8 @@
+# Only Dockerfile, scripts/ and src/ are needed in the build context.
+*
+!Dockerfile
+!scripts
+!src
+**/__pycache__
+**/*.pyc
+!test_input.json

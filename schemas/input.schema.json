@@ -1,0 +1,237 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "refactor-sprite-inpaint job input",
+  "description": "The object sent as {\"input\": ...} to the RunPod endpoint. Generated from src/sprite_inpaint/schema.py - do not edit by hand.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "image",
+    "mask",
+    "prompt"
+  ],
+  "properties": {
+    "image": {
+      "description": "The approved sprite. 8-bit PNG, RGBA or RGB. Base64 PNG (raw or data URI) or an https:// URL the worker downloads.",
+      "type": "string"
+    },
+    "mask": {
+      "description": "Edit mask, same size as image. Non-black, non-transparent pixels are repainted; brightness sets strength (max(R,G,B) x alpha). Pixels with mask value 0 are returned byte-for-byte unchanged. Base64 PNG (raw or data URI) or an https:// URL the worker downloads.",
+      "type": "string"
+    },
+    "guide_image": {
+      "description": "Optional pose/geometry guide, same size (or same aspect) as image: an OpenPose-style skeleton, scribble, line art, MLSD, depth or gray map drawn in the image's coordinates. Base64 PNG (raw or data URI) or an https:// URL the worker downloads.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
+    },
+    "alpha_image": {
+      "description": "Optional target silhouette for alpha_mode 'provided' / 'provided_glow'. Uses its alpha channel if it has one, otherwise its brightness. Base64 PNG (raw or data URI) or an https:// URL the worker downloads.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
+    },
+    "prompt": {
+      "description": "Correction prompt describing what the masked area should become.",
+      "type": "string",
+      "maxLength": 4000,
+      "minLength": 1
+    },
+    "negative_prompt": {
+      "description": "Only used when cfg > 1 (Z-Image-Turbo ignores negatives at cfg 1).",
+      "type": "string",
+      "default": "",
+      "maxLength": 4000
+    },
+    "guide_preprocess": {
+      "description": "'none' = guide is already a control map; 'canny' = run ComfyUI's Canny on it first.",
+      "type": "string",
+      "default": "none",
+      "enum": [
+        "none",
+        "canny"
+      ]
+    },
+    "control_strength": {
+      "description": "Fun ControlNet strength (model card: 0.65-1.0; higher helps inpaint continuity).",
+      "type": "number",
+      "default": 0.9,
+      "minimum": 0.0,
+      "maximum": 2.0
+    },
+    "canny_low": {
+      "description": "Canny low threshold (guide_preprocess 'canny' only).",
+      "type": "number",
+      "default": 0.1,
+      "minimum": 0.01,
+      "maximum": 0.99
+    },
+    "canny_high": {
+      "description": "Canny high threshold (guide_preprocess 'canny' only).",
+      "type": "number",
+      "default": 0.32,
+      "minimum": 0.01,
+      "maximum": 0.99
+    },
+    "seed": {
+      "description": "-1 picks a random seed; the seed used is returned.",
+      "type": "integer",
+      "default": -1,
+      "minimum": -1,
+      "maximum": 9007199254740991
+    },
+    "steps": {
+      "description": "Sampling steps (the 8-step distilled ControlNet is tuned for 8).",
+      "type": "integer",
+      "default": 8,
+      "minimum": 1,
+      "maximum": 50
+    },
+    "cfg": {
+      "description": "Classifier-free guidance. Z-Image-Turbo is distilled for 1.0.",
+      "type": "number",
+      "default": 1.0,
+      "minimum": 1.0,
+      "maximum": 10.0
+    },
+    "sampler_name": {
+      "description": "ComfyUI sampler.",
+      "type": "string",
+      "default": "res_multistep",
+      "enum": [
+        "res_multistep",
+        "euler",
+        "euler_ancestral",
+        "dpmpp_2m",
+        "dpmpp_2m_sde",
+        "dpmpp_sde",
+        "uni_pc",
+        "ddim",
+        "lcm"
+      ]
+    },
+    "scheduler": {
+      "description": "ComfyUI scheduler.",
+      "type": "string",
+      "default": "simple",
+      "enum": [
+        "simple",
+        "normal",
+        "karras",
+        "exponential",
+        "sgm_uniform",
+        "beta",
+        "linear_quadratic",
+        "ddim_uniform"
+      ]
+    },
+    "denoise": {
+      "description": "1.0 regenerates the masked area; lower keeps more of the original there.",
+      "type": "number",
+      "default": 1.0,
+      "minimum": 0.05,
+      "maximum": 1.0
+    },
+    "shift": {
+      "description": "ModelSamplingAuraFlow shift (Z-Image default 3).",
+      "type": "number",
+      "default": 3.0,
+      "minimum": 0.0,
+      "maximum": 20.0
+    },
+    "diffusion_precision": {
+      "description": "Diffusion model weights in VRAM: bf16 (12.3 GB, best quality) or fp8 (about half; use if a 24 GB GPU runs short or for faster cold starts).",
+      "type": "string",
+      "default": "bf16",
+      "enum": [
+        "bf16",
+        "fp8"
+      ]
+    },
+    "work_megapixels": {
+      "description": "Area the cropped region is resized to for generation. Only the crop around the mask is generated, never the whole sprite unless the mask spans it.",
+      "type": "number",
+      "default": 1.0,
+      "minimum": 0.25,
+      "maximum": 2.0
+    },
+    "max_upscale": {
+      "description": "Cap on how much a small crop is enlarged for generation.",
+      "type": "number",
+      "default": 4.0,
+      "minimum": 1.0,
+      "maximum": 8.0
+    },
+    "context_padding_px": {
+      "description": "Minimum context added around the mask bounding box, in source pixels.",
+      "type": "integer",
+      "default": 96,
+      "minimum": 0,
+      "maximum": 4096
+    },
+    "context_padding_ratio": {
+      "description": "Context added around the mask box as a fraction of its longer side (the larger of the two paddings wins).",
+      "type": "number",
+      "default": 0.35,
+      "minimum": 0.0,
+      "maximum": 4.0
+    },
+    "mask_grow_px": {
+      "description": "Dilation of the mask the MODEL sees (source pixels). Does not widen what is composited.",
+      "type": "integer",
+      "default": 6,
+      "minimum": 0,
+      "maximum": 256
+    },
+    "feather_px": {
+      "description": "Inward feather of the composite edge. Never extends outside the mask.",
+      "type": "integer",
+      "default": 3,
+      "minimum": 0,
+      "maximum": 128
+    },
+    "matte_color": {
+      "description": "Background the sprite is flattened onto for the model, and keyed out of the result.",
+      "type": "string",
+      "default": "#000000",
+      "pattern": "^#[0-9a-fA-F]{6}$"
+    },
+    "alpha_mode": {
+      "description": "Alpha of repainted pixels. auto (default) = 'provided' when alpha_image is given, otherwise 'key_add'. provided = alpha_image exactly (precise part repairs with a known silhouette); key_add = max(original alpha, keyed alpha) (extend limbs, keeps glows); preserve = original alpha; key = keyed alpha only (can erase); provided_glow = max(alpha_image, keyed alpha).",
+      "type": "string",
+      "default": "auto",
+      "enum": [
+        "auto",
+        "provided",
+        "key_add",
+        "preserve",
+        "key",
+        "provided_glow"
+      ]
+    },
+    "alpha_key_knee": {
+      "description": "Keyed alpha = clamp(max |pixel - matte| / knee). Lower = more opaque.",
+      "type": "number",
+      "default": 0.2,
+      "minimum": 0.01,
+      "maximum": 1.0
+    },
+    "return_format": {
+      "description": "'full' returns the whole PNG; 'patch' returns only the crop box (client pastes it back).",
+      "type": "string",
+      "default": "full",
+      "enum": [
+        "full",
+        "patch"
+      ]
+    },
+    "return_debug": {
+      "description": "Also return the model-space source, mask, guide and raw generation.",
+      "type": "boolean",
+      "default": false
+    }
+  }
+}
