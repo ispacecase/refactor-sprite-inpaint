@@ -13,11 +13,15 @@ from __future__ import annotations
 
 import base64
 import binascii
+import http.client
 import io
+import ipaddress
 import json
 import math
 import re
-import urllib.request
+import socket
+import ssl
+import urllib.parse
 from dataclasses import dataclass
 
 import numpy as np
@@ -35,6 +39,77 @@ class InputError(ValueError):
 
 
 # ---------------------------------------------------------------------------
+# Downloads (SSRF-hardened)
+# ---------------------------------------------------------------------------
+
+def _public_ip(host: str, port: int) -> str:
+    """Resolve ``host`` and return one address, refusing non-public ones.
+
+    Every resolved address must be globally routable, so a name that also
+    resolves to loopback / private / link-local (cloud metadata) / multicast /
+    reserved space is refused outright.
+    """
+    try:
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except OSError:
+        raise InputError("download failed") from None
+    addrs = [info[4][0] for info in infos]
+    for a in addrs:
+        ip = ipaddress.ip_address(a.split("%", 1)[0])
+        if ip.version == 6 and ip.ipv4_mapped is not None:
+            ip = ip.ipv4_mapped
+        if not ip.is_global or ip.is_multicast:
+            raise InputError("download refused: host does not resolve to a public address")
+    if not addrs:
+        raise InputError("download failed")
+    return addrs[0]
+
+
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    """HTTPS to a pre-vetted IP, with SNI and certificate checks for the real host
+    (so DNS cannot be re-resolved to a different address after the check)."""
+
+    def __init__(self, host: str, ip: str, port: int, timeout: float):
+        super().__init__(host, port, timeout=timeout, context=ssl.create_default_context())
+        self._ip = ip
+
+    def connect(self):
+        sock = socket.create_connection((self._ip, self.port), self.timeout)
+        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+
+
+def _download_public_https(url: str, field: str) -> bytes:
+    parts = urllib.parse.urlsplit(url)
+    host = parts.hostname
+    if parts.scheme != "https" or not host or parts.username or parts.password:
+        raise InputError(f"{field}: only plain https:// URLs are accepted")
+    port = parts.port or 443
+    try:
+        ip = _public_ip(host, port)
+    except InputError as exc:
+        raise InputError(f"{field}: {exc}") from None
+    path = parts.path or "/"
+    if parts.query:
+        path += "?" + parts.query
+    conn = _PinnedHTTPSConnection(host, ip, port, timeout=60)
+    try:
+        conn.request("GET", path, headers={"User-Agent": "refactor-sprite-inpaint/1"})
+        resp = conn.getresponse()
+        if resp.status != 200:  # redirects are not followed
+            raise InputError(f"{field}: download failed (HTTP {resp.status}; redirects are not followed)")
+        data = resp.read(MAX_DOWNLOAD_BYTES + 1)
+    except InputError:
+        raise
+    except Exception:
+        raise InputError(f"{field}: download failed") from None
+    finally:
+        conn.close()
+    if len(data) > MAX_DOWNLOAD_BYTES:
+        raise InputError(f"{field}: download larger than {MAX_DOWNLOAD_BYTES} bytes")
+    return data
+
+
+# ---------------------------------------------------------------------------
 # Decoding
 # ---------------------------------------------------------------------------
 
@@ -44,15 +119,7 @@ def fetch_bytes(value: str, field: str) -> bytes:
         raise InputError(f"{field}: empty")
     v = value.strip()
     if v.lower().startswith("https://"):
-        try:
-            req = urllib.request.Request(v, headers={"User-Agent": "refactor-sprite-inpaint/1"})
-            with urllib.request.urlopen(req, timeout=60) as resp:  # noqa: S310 (https only)
-                data = resp.read(MAX_DOWNLOAD_BYTES + 1)
-        except Exception as exc:  # pragma: no cover - network
-            raise InputError(f"{field}: download failed ({exc})") from exc
-        if len(data) > MAX_DOWNLOAD_BYTES:
-            raise InputError(f"{field}: download larger than {MAX_DOWNLOAD_BYTES} bytes")
-        return data
+        return _download_public_https(v, field)
     if v.lower().startswith("http://"):
         raise InputError(f"{field}: only https:// URLs are accepted")
     s = "".join(_DATA_URI.sub("", v).split())

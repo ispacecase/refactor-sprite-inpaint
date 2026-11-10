@@ -12,7 +12,8 @@ The owner approved the custom RunPod Serverless architecture and the Z-Image-Tur
 | 24 GB operation | Keep cropping around the mask (never the whole sprite unless the mask spans it). Rely on ComfyUI's dynamic VRAM; the image passes `COMFY_EXTRA_ARGS` (default `--reserve-vram 1.0`) to ComfyUI through a build-time patch of `/start.sh`. Per-job `diffusion_precision: fp8` halves the diffusion weights. `work_megapixels` capped at 2.0. |
 | Transparency | `alpha_mode` default is now `auto`: `provided` whenever an `alpha_image` silhouette is sent (the owner's choice for precise character-part repairs), otherwise `key_add`. All other modes stay available. |
 | Image size | Measured from the registry: 56–65 GB likely, 77.8 GB worst case, under RunPod's 80 GB limit. Container disk recommendation raised to 100 GB (cost is included in the worker price). |
-| Guarantees | CPU tests and the byte-identical unmasked-pixel check are unchanged; tests grew from 64 to 71. |
+| Guarantees | CPU tests and the byte-identical unmasked-pixel check are unchanged; tests grew from 64 to 87. |
+| URL inputs (security review) | `https://` image inputs are SSRF-hardened: public addresses only, IP pinned, no redirects, generic errors. Found by an automated review before the public push. |
 
 ## 2026-11-10: initial worker (proposed by Claude; approved by the owner the same day)
 

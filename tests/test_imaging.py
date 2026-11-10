@@ -178,3 +178,70 @@ def test_png_bytes_round_trip_rgba_and_icc():
     assert np.array_equal(np.array(im), sprite)
     assert im.info.get("icc_profile") == b"fake-icc"
     assert im.text.get("k") == "v"
+
+
+# ---- URL downloads: SSRF hardening --------------------------------------
+
+def _resolve_to(monkeypatch, *addrs):
+    def fake(host, port, type=0):
+        return [(0, 0, 0, "", (a, port)) for a in addrs]
+    monkeypatch.setattr(imaging.socket, "getaddrinfo", fake)
+
+
+@pytest.mark.parametrize("addrs", [
+    ("127.0.0.1",), ("10.1.2.3",), ("192.168.0.5",), ("172.16.0.1",), ("169.254.169.254",),
+    ("100.64.0.1",), ("0.0.0.0",), ("::1",), ("fd00::1",), ("::ffff:127.0.0.1",), ("224.0.0.1",),
+    ("93.184.216.34", "10.0.0.1"),   # one public + one private: refused
+])
+def test_url_to_non_public_address_is_refused(monkeypatch, addrs):
+    _resolve_to(monkeypatch, *addrs)
+    monkeypatch.setattr(imaging.socket, "create_connection", lambda *a, **k: pytest.fail("connected"))
+    with pytest.raises(InputError, match="refused"):
+        imaging.fetch_bytes("https://images.example/sprite.png", "image")
+
+
+def test_url_with_credentials_is_refused():
+    with pytest.raises(InputError, match="plain https"):
+        imaging.fetch_bytes("https://user:pw@images.example/a.png", "image")
+
+
+class _FakeResp:
+    def __init__(self, status, body=b""):
+        self.status, self._body = status, body
+
+    def read(self, n):
+        return self._body[:n]
+
+
+def _fake_conn(monkeypatch, status, body=b""):
+    seen = {}
+
+    def request(self, method, path, headers=None):
+        seen.update(host=self.host, ip=self._ip, path=path)
+
+    monkeypatch.setattr(imaging._PinnedHTTPSConnection, "request", request)
+    monkeypatch.setattr(imaging._PinnedHTTPSConnection, "getresponse", lambda self: _FakeResp(status, body))
+    return seen
+
+
+def test_url_download_pins_vetted_ip_and_returns_body(monkeypatch):
+    _resolve_to(monkeypatch, "93.184.216.34")
+    seen = _fake_conn(monkeypatch, 200, b"PNGDATA")
+    assert imaging.fetch_bytes("https://images.example/a/b.png?x=1", "image") == b"PNGDATA"
+    assert seen == {"host": "images.example", "ip": "93.184.216.34", "path": "/a/b.png?x=1"}
+
+
+def test_url_redirect_is_not_followed(monkeypatch):
+    _resolve_to(monkeypatch, "93.184.216.34")
+    _fake_conn(monkeypatch, 302)
+    with pytest.raises(InputError, match="redirects are not followed"):
+        imaging.fetch_bytes("https://images.example/a.png", "image")
+
+
+def test_url_dns_failure_is_generic(monkeypatch):
+    def boom(*a, **k):
+        raise OSError("secret internal detail")
+    monkeypatch.setattr(imaging.socket, "getaddrinfo", boom)
+    with pytest.raises(InputError) as ei:
+        imaging.fetch_bytes("https://nope.example/a.png", "image")
+    assert "secret" not in str(ei.value)

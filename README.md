@@ -8,7 +8,7 @@ image and deploys from GitHub through RunPod's GitHub integration (Serverless, n
 
 **Status:** the repository is ready to deploy. It has **not** been built on RunPod or run on a GPU yet. The
 CPU parts (input validation, crop planning, workflow building, alpha recovery, byte-exact compositing,
-client, start-script patch) are covered by 71 unit tests and a build-time self-test.
+client, start-script patch) are covered by 87 unit tests and a build-time self-test.
 
 ---
 
@@ -77,6 +77,11 @@ Send `{"input": {...}}`. Full field list with ranges: [`schemas/input.schema.jso
 
 The request limit is 10 MB for `/run` and 20 MB for `/runsync`. For larger sprites, host the PNGs and pass
 `https://` URLs.
+
+URL inputs are fetched defensively: `https` only and no credentials in the URL; the host must resolve only
+to public addresses (loopback, private, link-local/cloud-metadata, multicast and reserved ranges are
+refused); the connection is pinned to the vetted IP (no DNS rebinding); redirects are not followed; 64 MB
+maximum; errors are generic.
 
 ### Output
 
